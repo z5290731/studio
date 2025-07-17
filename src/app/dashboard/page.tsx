@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import Editor from "@monaco-editor/react";
+import { useState, useMemo, useRef } from "react";
+import Editor, { OnMount } from "@monaco-editor/react";
+import type * as monaco from 'monaco-editor';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MongoQuillLogo } from "@/components/icons";
@@ -43,12 +44,14 @@ function executeQuery(
         case 'insertOne': {
             const doc = operation.args[0];
             if (!doc || typeof doc !== 'object') throw new Error('insertOne requires a document argument.');
+            if (!data[collectionName]) data[collectionName] = [];
             data[collectionName].push({ _id: `new_${Date.now()}`, ...doc });
             return { collection: collectionName, data: { acknowledged: true, insertedId: `new_${Date.now()}` }, message: 'Document inserted.' };
         }
         case 'insertMany': {
              const docs = operation.args[0];
              if (!Array.isArray(docs)) throw new Error('insertMany requires an array of documents.');
+             if (!data[collectionName]) data[collectionName] = [];
              const insertedIds = docs.map((doc, i) => `new_${Date.now()}_${i}`);
              docs.forEach((doc, i) => data[collectionName].push({ _id: insertedIds[i], ...doc }));
              return { collection: collectionName, data: { acknowledged: true, insertedIds }, message: `${docs.length} documents inserted.` };
@@ -254,12 +257,17 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
 
   const collections = useMemo(() => {
     if (!activeDb) return [];
     return Object.keys(dbData[activeDb]);
   }, [activeDb, dbData]);
+
+  const handleEditorDidMount: OnMount = (editor) => {
+    editorRef.current = editor;
+  };
 
   const handleSelectDb = (dbId: DbId) => {
     setActiveDb(dbId);
@@ -270,7 +278,19 @@ export default function DashboardPage() {
   };
 
   const handleRunQuery = () => {
-    if (!activeDb) return;
+    if (!activeDb || !editorRef.current) return;
+
+    let queryToRun = query;
+    const selection = editorRef.current.getSelection();
+    if (selection && !selection.isEmpty()) {
+      queryToRun = editorRef.current.getModel()?.getValueInRange(selection) || '';
+    }
+    
+    if (!queryToRun.trim()) {
+        setError("Query is empty.");
+        return;
+    }
+
     setIsLoading(true);
     setResult(null);
     setError(null);
@@ -278,7 +298,7 @@ export default function DashboardPage() {
 
     setTimeout(() => {
       try {
-        const parsedOperation = parseMongoQuery(query);
+        const parsedOperation = parseMongoQuery(queryToRun);
         
         // Make a deep copy to mutate
         const currentDbData = JSON.parse(JSON.stringify(dbData[activeDb]));
@@ -366,6 +386,7 @@ export default function DashboardPage() {
                   language="javascript"
                   theme="vs-dark"
                   value={query}
+                  onMount={handleEditorDidMount}
                   onChange={(value) => setQuery(value || "")}
                   options={{
                     minimap: { enabled: false },
