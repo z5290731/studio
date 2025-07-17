@@ -20,6 +20,7 @@ const DEFAULT_QUERY = `{
 }
 // Note: This is a simulated environment.
 // Supported operations: find, filter, limit.
+// Supported operators: $gt, $lt, $gte, $lte, $ne, $in, $nin, $and, $or, $not
 // Click "Run Query" to see results.`;
 
 // A simple query executor
@@ -36,30 +37,7 @@ function executeQuery(data: Record<string, any[]>, query: any) {
   let results = [...data[collectionName]];
 
   if (query.filter && typeof query.filter === 'object') {
-    const filterKeys = Object.keys(query.filter);
-    results = results.filter(doc => {
-      return filterKeys.every(key => {
-        // Basic dot notation support
-        const keys = key.split('.');
-        let docValue = doc;
-        for (const k of keys) {
-          if (docValue === undefined) break;
-          docValue = docValue[k];
-        }
-
-        const filterValue = query.filter[key];
-
-        if (typeof filterValue === 'object' && filterValue !== null) {
-          if (filterValue.$gt) return docValue > filterValue.$gt;
-          if (filterValue.$lt) return docValue < filterValue.$lt;
-          if (filterValue.$gte) return docValue >= filterValue.$gte;
-          if (filterValue.$lte) return docValue <= filterValue.$lte;
-          if (filterValue.$ne) return docValue !== filterValue.$ne;
-        }
-
-        return docValue === filterValue;
-      });
-    });
+    results = results.filter(doc => evaluateFilter(doc, query.filter));
   }
 
   if (query.limit && typeof query.limit === 'number') {
@@ -67,6 +45,57 @@ function executeQuery(data: Record<string, any[]>, query: any) {
   }
 
   return { collection: collectionName, data: results };
+}
+
+function evaluateFilter(doc: any, filter: any): boolean {
+  const filterKeys = Object.keys(filter);
+
+  if (filterKeys.includes('$and')) {
+    if (!Array.isArray(filter.$and)) throw new Error('$and must be an array');
+    return filter.$and.every((subFilter: any) => evaluateFilter(doc, subFilter));
+  }
+
+  if (filterKeys.includes('$or')) {
+    if (!Array.isArray(filter.$or)) throw new Error('$or must be an array');
+    return filter.$or.some((subFilter: any) => evaluateFilter(doc, subFilter));
+  }
+  
+  if (filterKeys.includes('$not')) {
+    if (typeof filter.$not !== 'object') throw new Error('$not must be an object');
+    return !evaluateFilter(doc, filter.$not);
+  }
+
+  return filterKeys.every(key => {
+    const docValue = getNestedValue(doc, key);
+    const filterValue = filter[key];
+
+    if (typeof filterValue === 'object' && filterValue !== null && !Array.isArray(filterValue)) {
+      const op = Object.keys(filterValue)[0];
+      const val = filterValue[op];
+
+      switch(op) {
+        case '$gt': return docValue > val;
+        case '$lt': return docValue < val;
+        case '$gte': return docValue >= val;
+        case '$lte': return docValue <= val;
+        case '$ne': return docValue !== val;
+        case '$in': 
+          if (!Array.isArray(val)) throw new Error(`$in requires an array value.`);
+          return val.includes(docValue);
+        case '$nin':
+          if (!Array.isArray(val)) throw new Error(`$nin requires an array value.`);
+          return !val.includes(docValue);
+        default:
+          return JSON.stringify(docValue) === JSON.stringify(filterValue);
+      }
+    }
+    
+    return docValue === filterValue;
+  });
+}
+
+function getNestedValue(obj: any, path: string) {
+  return path.split('.').reduce((acc, part) => acc && acc[part], obj);
 }
 
 
