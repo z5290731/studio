@@ -9,7 +9,7 @@ import { MongoQuillLogo } from "@/components/icons";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const ACCESS_CODE = "123456";
+const ACCESS_CODE = "261100";
 
 export default function Home() {
   const [code, setCode] = useState("");
