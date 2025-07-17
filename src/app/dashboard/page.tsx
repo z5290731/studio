@@ -217,9 +217,10 @@ interface ParsedQuery {
 const SUPPORTED_COMMANDS: SupportedCommand[] = ['find', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany'];
 
 function parseMongoQuery(queryString: string): ParsedQuery {
-    const query = queryString.replace(/\s+/g, ' ').trim();
+    const query = queryString.trim();
     
-    const commandRegex = new RegExp(`^db\\.([a-zA-Z0-9_-]+)\\.(${SUPPORTED_COMMANDS.join('|')})\\((.*)\\)$`);
+    // Improved regex to better handle empty arguments
+    const commandRegex = new RegExp(`^db\\.([a-zA-Z0-9_-]+)\\.(${SUPPORTED_COMMANDS.join('|')})\\((.*)\\)$`, 's');
     const match = query.match(commandRegex);
 
     if (!match) {
@@ -228,7 +229,8 @@ function parseMongoQuery(queryString: string): ParsedQuery {
 
     const [, collectionName, command, argsString] = match;
 
-    if (!argsString) {
+    // Handle case where there are no arguments, e.g., db.collection.find()
+    if (argsString.trim() === '') {
         return { command: command as SupportedCommand, collectionName, args: [] };
     }
   
@@ -404,5 +406,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
