@@ -5,21 +5,70 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MongoQuillLogo } from "@/components/icons";
-import { Database, Play, Loader2, Code2 } from "lucide-react";
+import { Database, Play, Loader2, Code2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DB_CONTENT, DB_CONFIG } from "@/lib/data";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type DbId = keyof typeof DB_CONTENT;
 
 const DEFAULT_QUERY = `{
-  "find": "collection_name",
-  "filter": { "field": "value" },
+  "find": "passengers",
+  "filter": { "tier": "Solitaire PPS Club" },
   "limit": 5
 }
 // Note: This is a simulated environment.
-// The query is not actually executed.
-// Click "Run Query" to see sample data.`;
+// Supported operations: find, filter, limit.
+// Click "Run Query" to see results.`;
+
+// A simple query executor
+function executeQuery(data: Record<string, any[]>, query: any) {
+  if (!query.find || typeof query.find !== 'string') {
+    throw new Error('Missing or invalid "find" property for collection name.');
+  }
+
+  const collectionName = query.find;
+  if (!data[collectionName]) {
+    throw new Error(`Collection "${collectionName}" not found.`);
+  }
+
+  let results = [...data[collectionName]];
+
+  if (query.filter && typeof query.filter === 'object') {
+    const filterKeys = Object.keys(query.filter);
+    results = results.filter(doc => {
+      return filterKeys.every(key => {
+        // Basic dot notation support
+        const keys = key.split('.');
+        let docValue = doc;
+        for (const k of keys) {
+          if (docValue === undefined) break;
+          docValue = docValue[k];
+        }
+
+        const filterValue = query.filter[key];
+
+        if (typeof filterValue === 'object' && filterValue !== null) {
+          if (filterValue.$gt) return docValue > filterValue.$gt;
+          if (filterValue.$lt) return docValue < filterValue.$lt;
+          if (filterValue.$gte) return docValue >= filterValue.$gte;
+          if (filterValue.$lte) return docValue <= filterValue.$lte;
+          if (filterValue.$ne) return docValue !== filterValue.$ne;
+        }
+
+        return docValue === filterValue;
+      });
+    });
+  }
+
+  if (query.limit && typeof query.limit === 'number') {
+    results = results.slice(0, query.limit);
+  }
+
+  return { collection: collectionName, data: results };
+}
+
 
 export default function DashboardPage() {
   const [activeDb, setActiveDb] = useState<DbId | null>("singapore-airlines");
@@ -27,6 +76,8 @@ export default function DashboardPage() {
   const [result, setResult] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
 
   const collections = useMemo(() => {
     if (!activeDb) return [];
@@ -38,22 +89,33 @@ export default function DashboardPage() {
     setResult(null);
     setQuery(DEFAULT_QUERY);
     setActiveCollection(null);
+    setError(null);
   };
 
   const handleRunQuery = () => {
     if (!activeDb) return;
     setIsLoading(true);
     setResult(null);
+    setError(null);
+    setActiveCollection(null);
 
     setTimeout(() => {
-      const collectionsInDb = Object.keys(DB_CONTENT[activeDb]);
-      const randomCollectionName = collectionsInDb[Math.floor(Math.random() * collectionsInDb.length)];
-      const data = DB_CONTENT[activeDb][randomCollectionName];
-      
-      setActiveCollection(randomCollectionName);
-      setResult(JSON.stringify(data, null, 2));
-      setIsLoading(false);
-    }, 1200);
+      try {
+        // Remove comments and parse the query string
+        const cleanedQueryString = query.replace(/\/\/.*$/gm, '');
+        const queryObj = JSON.parse(cleanedQueryString);
+        
+        const dbData = DB_CONTENT[activeDb];
+        const { collection, data } = executeQuery(dbData, queryObj);
+
+        setActiveCollection(collection);
+        setResult(JSON.stringify(data, null, 2));
+      } catch (e: any) {
+        setError(e.message || "Invalid query format. Please use valid JSON.");
+      } finally {
+        setIsLoading(false);
+      }
+    }, 800);
   };
 
   return (
@@ -95,9 +157,9 @@ export default function DashboardPage() {
             <div className="flex-1 flex flex-col h-1/2 border-b">
               <header className="p-4 flex justify-between items-center border-b">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-medium">{activeDb}</h2>
+                  <h2 className="text-lg font-medium">{DB_CONFIG.find(db => db.id === activeDb)?.name}</h2>
                   <span className="text-sm text-muted-foreground">/</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {collections.map(name => (
                       <span key={name} className="text-sm text-muted-foreground">{name}</span>
                     ))}
@@ -137,6 +199,12 @@ export default function DashboardPage() {
                     <Skeleton className="h-4 w-1/3" />
                     <Skeleton className="h-4 w-3/4" />
                   </div>
+                ) : error ? (
+                   <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Query Error</AlertTitle>
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                 ) : result ? (
                   <pre className="font-code text-sm"><code >{result}</code></pre>
                 ) : (
