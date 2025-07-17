@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MongoQuillLogo } from "@/components/icons";
 import { Database, Play, Loader2, Code2, AlertTriangle } from "lucide-react";
@@ -361,11 +361,28 @@ export default function DashboardPage() {
                 </Button>
               </header>
               <div className="flex-1 relative">
-                <Textarea
+                <Editor
+                  height="100%"
+                  language="javascript"
+                  theme="vs-dark"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Enter your MongoDB query here... e.g., db.passengers.find({ tier: 'KrisFlyer' })"
-                  className="absolute inset-0 w-full h-full resize-none rounded-none border-none focus-visible:ring-0 font-code text-base p-4"
+                  onChange={(value) => setQuery(value || "")}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 16,
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                    lineNumbers: 'off',
+                    automaticLayout: true,
+                    glyphMargin: false,
+                    folding: false,
+                    lineDecorationsWidth: 0,
+                    lineNumbersMinChars: 0,
+                    padding: {
+                      top: 16,
+                      bottom: 16,
+                    },
+                  }}
                 />
               </div>
             </div>
