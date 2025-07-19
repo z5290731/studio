@@ -6,7 +6,7 @@ import type * as monaco from 'monaco-editor';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MongoQuillLogo } from "@/components/icons";
-import { Database, Play, Loader2, Code2, AlertTriangle } from "lucide-react";
+import { Database, Play, Loader2, Code2, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DB_CONTENT as INITIAL_DB_CONTENT, DB_CONFIG } from "@/lib/data";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -354,7 +354,7 @@ export default function DashboardPage() {
       </aside>
 
       {/* Right Panel: Editor and Results */}
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col min-h-0">
         {!activeDb ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             Select a database to begin.
@@ -362,7 +362,7 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-col flex-1 h-full">
             {/* Top half: Query Editor */}
-            <div className="flex-1 flex flex-col border-b">
+            <div className="flex-1 flex flex-col border-b min-h-0">
               <header className="p-4 flex justify-between items-center border-b flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-medium">{DB_CONFIG.find(db => db.id === activeDb)?.name}</h2>
@@ -434,8 +434,17 @@ export default function DashboardPage() {
                 ) : result ? (
                   <pre className="font-code text-sm"><code >{result}</code></pre>
                 ) : (
-                  <div className="text-muted-foreground h-full flex items-center justify-center">
-                    Run a query to see the results here.
+                  <div className="text-muted-foreground h-full flex flex-col items-center justify-center text-center p-8">
+                    <div className="max-w-md mx-auto">
+                      <Info className="h-10 w-10 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold mb-3 text-foreground">Welcome to MongoQuill</h3>
+                      <p className="mb-2">
+                        An emulated MongoDB environment in which you can test queries.
+                      </p>
+                      <p className="text-xs">
+                        This was created by Eric Chiu for use in the INFS2608 T2 2025 Course at the University Of New South Wales. If you have any issues, contact your TIC.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
