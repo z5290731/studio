@@ -25,7 +25,7 @@ function executeQuery(
   operation: ParsedQuery
 ): { collection: string; data: any; message?: string } {
     const collectionName = operation.collectionName;
-    if (!data[collectionName] && operation.command !== 'find') {
+    if (!data[collectionName] && !['find', 'insertOne', 'insertMany'].includes(operation.command)) {
       throw new Error(`Collection "${collectionName}" not found.`);
     }
 
@@ -40,6 +40,14 @@ function executeQuery(
                 results = results.filter(doc => evaluateFilter(doc, filter));
             }
             return { collection: collectionName, data: results };
+        }
+        case 'findOne': {
+            if (!data[collectionName]) {
+                throw new Error(`Collection "${collectionName}" not found.`);
+            }
+            const filter = operation.args[0] || {};
+            const result = data[collectionName].find(doc => evaluateFilter(doc, filter)) || null;
+            return { collection: collectionName, data: result };
         }
         case 'insertOne': {
             const doc = operation.args[0];
@@ -103,6 +111,63 @@ function executeQuery(
             
             return { collection: collectionName, data: { acknowledged: true, deletedCount }, message: `${deletedCount} document(s) deleted.` };
         }
+        case 'findOneAndUpdate': {
+            const [filter, update, options] = operation.args;
+            const index = data[collectionName].findIndex(doc => evaluateFilter(doc, filter));
+            if (index === -1) return { collection: collectionName, data: null, message: "No document matched the filter." };
+
+            const originalDoc = JSON.parse(JSON.stringify(data[collectionName][index]));
+            data[collectionName][index] = applyUpdate(originalDoc, update);
+            const updatedDoc = data[collectionName][index];
+
+            const result = options?.returnNewDocument ? updatedDoc : originalDoc;
+            return { collection: collectionName, data: result, message: "Document updated." };
+        }
+        case 'findOneAndReplace': {
+            const [filter, replacement, options] = operation.args;
+            const index = data[collectionName].findIndex(doc => evaluateFilter(doc, filter));
+            if (index === -1) return { collection: collectionName, data: null, message: "No document matched the filter." };
+
+            const originalDoc = JSON.parse(JSON.stringify(data[collectionName][index]));
+            const originalId = originalDoc._id; // Preserve original _id
+            data[collectionName][index] = { ...replacement, _id: originalId };
+            const replacedDoc = data[collectionName][index];
+
+            const result = options?.returnNewDocument ? replacedDoc : originalDoc;
+            return { collection: collectionName, data: result, message: "Document replaced." };
+        }
+        case 'findOneAndDelete': {
+            const [filter, options] = operation.args;
+            const index = data[collectionName].findIndex(doc => evaluateFilter(doc, filter));
+            if (index === -1) return { collection: collectionName, data: null, message: "No document matched the filter." };
+
+            const deletedDoc = data[collectionName][index];
+            data[collectionName].splice(index, 1);
+            
+            return { collection: collectionName, data: deletedDoc, message: "Document deleted." };
+        }
+        case 'findAndModify': {
+            const config = operation.args[0] || {};
+            const { query, remove, update } = config;
+
+            const index = data[collectionName].findIndex(doc => evaluateFilter(doc, query));
+            if (index === -1) return { collection: collectionName, data: { value: null }, message: "No document matched the filter." };
+            
+            const originalDoc = JSON.parse(JSON.stringify(data[collectionName][index]));
+
+            if (remove) {
+                data[collectionName].splice(index, 1);
+                return { collection: collectionName, data: { value: originalDoc }, message: "Document removed." };
+            }
+            if (update) {
+                data[collectionName][index] = applyUpdate(originalDoc, update);
+                const updatedDoc = data[collectionName][index];
+                const result = config.new ? updatedDoc : originalDoc;
+                return { collection: collectionName, data: { value: result }, message: "Document modified." };
+            }
+
+            throw new Error("findAndModify requires 'remove' or 'update' field.");
+        }
         default:
             throw new Error(`Unsupported command: ${operation.command}`);
     }
@@ -129,7 +194,7 @@ function setNestedValue(obj: any, path: string, value: any) {
     const keys = path.split('.');
     let current = obj;
     for (let i = 0; i < keys.length - 1; i++) {
-        if (current[keys[i]] === undefined || typeof current[keys[i]] !== 'object') {
+        if (current[keys[i]] === undefined || typeof current[keys[i]] !== 'object' || current[keys[i]] === null) {
             current[keys[i]] = {};
         }
         current = current[keys[i]];
@@ -139,9 +204,15 @@ function setNestedValue(obj: any, path: string, value: any) {
 
 function deleteNestedValue(obj: any, path: string) {
     const keys = path.split('.');
+    if (keys.length === 1) {
+        delete obj[keys[0]];
+        return;
+    }
     let current = obj;
     for (let i = 0; i < keys.length - 1; i++) {
-        if (current[keys[i]] === undefined) return;
+        if (current[keys[i]] === undefined || typeof current[keys[i]] !== 'object' || current[keys[i]] === null) {
+            return;
+        }
         current = current[keys[i]];
     }
     delete current[keys[keys.length - 1]];
@@ -188,20 +259,20 @@ function evaluateFilter(doc: any, filter: any): boolean {
         case '$lt': return docValue < val;
         case '$gte': return docValue >= val;
         case '$lte': return docValue <= val;
-        case '$ne': return docValue !== val;
+        case '$ne': return JSON.stringify(docValue) !== JSON.stringify(val);
         case '$in': 
           if (!Array.isArray(val)) throw new Error(`$in requires an array value.`);
-          return val.includes(docValue);
+          return val.some(v => JSON.stringify(v) === JSON.stringify(docValue));
         case '$nin':
           if (!Array.isArray(val)) throw new Error(`$nin requires an array value.`);
-          return !val.includes(docValue);
+          return !val.some(v => JSON.stringify(v) === JSON.stringify(docValue));
         default:
            // Fallback for nested objects without operators
           return JSON.stringify(docValue) === JSON.stringify(filterValue);
       }
     }
     
-    return docValue === filterValue;
+    return JSON.stringify(docValue) === JSON.stringify(filterValue);
   });
 }
 
@@ -211,13 +282,13 @@ function getNestedValue(obj: any, path: string) {
 
 // --- Query Parsing Logic ---
 
-type SupportedCommand = 'find' | 'insertOne' | 'insertMany' | 'updateOne' | 'updateMany' | 'deleteOne' | 'deleteMany';
+type SupportedCommand = 'find' | 'findOne' | 'insertOne' | 'insertMany' | 'updateOne' | 'updateMany' | 'deleteOne' | 'deleteMany' | 'findOneAndUpdate' | 'findOneAndReplace' | 'findOneAndDelete' | 'findAndModify';
 interface ParsedQuery {
     command: SupportedCommand;
     collectionName: string;
     args: any[];
 }
-const SUPPORTED_COMMANDS: SupportedCommand[] = ['find', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany'];
+const SUPPORTED_COMMANDS: SupportedCommand[] = ['find', 'findOne', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'findOneAndUpdate', 'findOneAndReplace', 'findOneAndDelete', 'findAndModify'];
 
 function parseMongoQuery(queryString: string): ParsedQuery {
     const query = queryString.trim();
@@ -308,7 +379,10 @@ export default function DashboardPage() {
         const { collection, data, message } = executeQuery(currentDbData, parsedOperation);
         
         // If it was a mutation, update the state
-        if (['insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany'].includes(parsedOperation.command)) {
+        if ([
+          'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany',
+          'findOneAndUpdate', 'findOneAndReplace', 'findOneAndDelete', 'findAndModify'
+        ].includes(parsedOperation.command)) {
             setDbData(prev => ({
                 ...prev,
                 [activeDb]: currentDbData
