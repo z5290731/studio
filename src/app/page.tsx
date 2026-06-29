@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -21,8 +22,10 @@ export default function Home() {
     e.preventDefault();
     if (code === ACCESS_CODE) {
       setIsLoading(true);
+      // We use a relative path "dashboard/" instead of "/dashboard" 
+      // to ensure it works correctly when hosted in a subfolder on GitHub Pages.
       setTimeout(() => {
-        router.push("/dashboard");
+        router.push("dashboard/");
       }, 1000);
     } else {
       toast({
